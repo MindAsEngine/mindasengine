@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  mind-as-engine-frontend:
+    container_name: mind-as-engine-frontend
+    image: mind-as-engine-frontend
+    build:
+      context: ./frontend
+    depends_on:
+      - mind-as-engine-backend
+    ports:
+      - '80:3000'
+    networks:
+      - 'default'
+
+  mind-as-engine-backend:
+    container_name: mind-as-engine-backend
+    image: mind-as-engine-backend
+    build:
+      context: ./backend
+    depends_on:
+      - mind-as-engine-database
+    env_file: environment.env
+    volumes:
+      - /home/mindasengine/res:/home/mindasengine/images
+    ports:
+      - '1337:1337'
+    networks:
+      - 'default'
+
+  mind-as-engine-database:
+    container_name: mind-as-engine-database
+    image: postgres:14-alpine3.18
+    build:
+      context: .
+    env_file: environment.env
+    volumes:
+      - /home/mindasengine/pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    ports:
+      - '5555:5432'
+    networks:
+      - 'default'
