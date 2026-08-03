@@ -158,6 +158,22 @@ done
 docker network ls
 ```
 
+Ожидаемая картина: три работающих контейнера — `mind-as-engine-frontend`
+(`0.0.0.0:80->3000`), `mind-as-engine-backend` (`1337`),
+`mind-as-engine-database` (`5555->5432`). Контейнера `twg-proxy` нет, хотя в
+git-версии `compose.yml` он описан — ещё одно подтверждение, что сайт работает
+не на том файле, что лежит в `b5ce3c8`.
+
+Кроме них в `docker ps -a` висят три давно остановленных контейнера от старой
+схемы именования — `frontend`, `mindasengine`, `postgres` (из `c9ace25`).
+Трогать их до конца перехода **нельзя**: они удерживают старые образы, а те
+после `docker compose build` остались без тегов. Удалять — только после
+успешного шага 11:
+
+```sh
+docker rm frontend mindasengine postgres
+```
+
 ## 3. Разобрать git
 
 > **compose.yml в git не совпадает с тем, чем работает сайт.** В `b5ce3c8`
@@ -209,13 +225,33 @@ ALLOWED.ORIGINS=https://mindasengine.uz,https://www.mindasengine.uz
 
 ## 4. Защитить откат
 
-`docker compose build` перезапишет теги `mind-as-engine-*:latest`, и откатиться
-будет уже не на что. Поэтому сначала пометить работающие образы:
+`docker compose build` перевешивает теги `mind-as-engine-*:latest` на свежие
+образы. Работающие контейнеры при этом продолжают крутиться на старых, но те
+остаются без тега — видно по `docker ps`, где в колонке IMAGE вместо имени
+появляется голый ID:
+
+```text
+CONTAINER ID   IMAGE          ...   NAMES
+b257ef3d5ae2   69932e9f200e   ...   mind-as-engine-frontend
+7f46f01a803a   bf6c03836975   ...   mind-as-engine-backend
+```
+
+Поэтому помечать надо **образ работающего контейнера**, а не `:latest` —
+`:latest` уже мог уехать на новую сборку:
 
 ```sh
-docker tag mind-as-engine-frontend:latest mind-as-engine-frontend:rollback
-docker tag mind-as-engine-backend:latest  mind-as-engine-backend:rollback
+docker tag "$(docker inspect -f '{{.Image}}' mind-as-engine-frontend)" \
+           mind-as-engine-frontend:rollback
+docker tag "$(docker inspect -f '{{.Image}}' mind-as-engine-backend)" \
+           mind-as-engine-backend:rollback
+
+# Сверка: ID должны совпасть с колонкой IMAGE из docker ps
+docker image inspect mind-as-engine-frontend:rollback --format '{{.Id}}'
+docker image inspect mind-as-engine-backend:rollback  --format '{{.Id}}'
 ```
+
+Если в `docker ps` в колонке IMAGE стоят имена, а не ID, сборки ещё не было и
+`:latest` пока указывает на рабочие образы — команды выше всё равно верны.
 
 `compose.rollback.yml` уже снят в шаге 0 — повторно копировать `compose.yml`
 сюда нельзя, после смены ветки это уже новый файл.
