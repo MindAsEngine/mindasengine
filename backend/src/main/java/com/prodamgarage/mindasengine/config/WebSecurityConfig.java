@@ -65,6 +65,10 @@ public class WebSecurityConfig {
                                 .requestMatchers("/projects").permitAll()
                                 .requestMatchers("/news").permitAll()
                                 .requestMatchers("/images/**").permitAll()
+                                // Без этого любая ошибка контроллера форвардится на /error,
+                                // тот попадает под anyRequest().authenticated(), и клиент
+                                // получает 401 вместо настоящего кода - 415, 400 и т.д.
+                                .requestMatchers("/error").permitAll()
                                 .anyRequest().authenticated()
                 );
 

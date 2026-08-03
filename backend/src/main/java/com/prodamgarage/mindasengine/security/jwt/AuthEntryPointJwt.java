@@ -20,9 +20,11 @@ public class AuthEntryPointJwt implements AuthenticationEntryPoint {
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException authException)
             throws IOException {
-        logger.error("CORS violation - Request from {} to {} was blocked.", request.getHeader("Origin"), request.getRequestURI());
-
-        logger.error("Unauthorized error: {}", authException.getMessage());
+        // Раньше здесь писалось "CORS violation" для любого отказа аутентификации,
+        // хотя к CORS это отношения не имеет - сообщение уводило диагностику в сторону.
+        logger.error("Authentication failed: {} {} (origin={}): {}",
+                request.getMethod(), request.getRequestURI(),
+                request.getHeader("Origin"), authException.getMessage());
 
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);

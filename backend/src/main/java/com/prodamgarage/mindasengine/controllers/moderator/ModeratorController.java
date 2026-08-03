@@ -27,8 +27,11 @@ public class ModeratorController {
         return ResponseEntity.ok(projects);
     }
 
+    // Без @RequestBody: форма приходит как multipart/form-data, конвертера тела
+    // для этого типа нет, и Spring отвечал 415 HttpMediaTypeNotSupportedException.
+    // Остальные методы контроллера уже используют привязку модели.
     @PostMapping("/upload/project")
-    public ResponseEntity<?> saveProject(@RequestBody ProjectRequest projectRequest) throws IOException {
+    public ResponseEntity<?> saveProject(ProjectRequest projectRequest) throws IOException {
         Project project = new Project(projectRequest.getName(), projectRequest.getDescription());
         postServiceFactory.createService(new Project()).save(project, projectRequest.getMultipartFiles());
         return ResponseEntity.ok("Upload project");
