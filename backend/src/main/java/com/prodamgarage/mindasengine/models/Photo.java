@@ -10,6 +10,8 @@ public class Photo {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    // UUID (36) + "." + исходное имя файла - в 255 символов может не уложиться.
+    @Column(length = 512)
     private String filename;
     @ManyToOne
     @JoinColumn(name = "fk_project_id")

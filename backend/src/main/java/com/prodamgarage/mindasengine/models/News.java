@@ -15,8 +15,12 @@ public class News {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     @NonNull
+    @Column(length = 500)
     private String name;
+    // Без columnDefinition Hibernate делает varchar(255), и описание длиннее
+    // 255 символов роняло вставку: SQLState 22001, "value too long".
     @NonNull
+    @Column(columnDefinition = "text")
     private String description;
     @NonNull
     @Column(columnDefinition = "DATE")
