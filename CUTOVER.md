@@ -80,45 +80,42 @@ grep -E "80:3000|twg-proxy" compose.rollback.yml   # ждём '80:3000', twg-pro
 
 ## 1. Доставка кода на сервер
 
-Push с сервера недоступен, а репозитории вообще разные (см. таблицу выше),
-поэтому обмен идёт файлами-бандлами в обе стороны. Состояние сервера уже снято
-в `СЕРВЕР/mae-deploy.bundle`. Обратная доставка — тем же способом.
+Правки лежат в ветке `deploy-nginx-tls` в **том же** репозитории, где живёт
+сервер — `github.com/ProdamGaraj/mindasengine`. Ветка стоит прямо на `b5ce3c8`,
+то есть на боевом коммите, поэтому история непрерывна и никакие бандлы не
+нужны. `deploy` и `master` не тронуты.
 
-Локально (ветка с правками — `nginx-tls`, не `master`; на `master` лежит
-январский код без единой правки):
-
-```sh
-git bundle create ~/mae-nginx-tls.bundle nginx-tls
-git bundle list-heads ~/mae-nginx-tls.bundle    # ждём refs/heads/nginx-tls
-```
-
-Скопировать `mae-nginx-tls.bundle` на сервер, затем на сервере:
+На сервере:
 
 ```sh
-git fetch ~/mae-nginx-tls.bundle 'refs/heads/nginx-tls:refs/remotes/local/nginx-tls'
-git log --oneline -6 local/nginx-tls
+git fetch origin deploy-nginx-tls
+git log --oneline -5 origin/deploy-nginx-tls
 ```
 
 Ожидаемые заголовки, снизу вверх:
 
 ```text
-mindasengine rebirth
-Restore changes that existed only on the live deploy branch
+description add                                                  <- b5ce3c8, боевой коммит
 Fix frontend-backend-database wiring
 Add nginx reverse proxy with TLS and automatic certificate renewal
 Add deployment and cutover documentation
+Correct the cutover runbook: bundle the nginx-tls branch, not master
+Align ignore rules with the nginx-tls branch
 ```
 
-Верхний хеш должен совпадать с тем, что печатает
-`git bundle list-heads ~/mae-nginx-tls.bundle`. Если в логе один только
-`mindasengine rebirth` — приехал бандл, собранный с `master`, дальше идти
-нельзя: шаг 5 упадёт на сборке базы.
+Если `git fetch` не проходит по правам — та же ветка отдаётся инкрементальным
+бандлом `mae-nginx-tls-incr.bundle` (77 КБ, требует уже имеющийся `b5ce3c8`):
+
+```sh
+git fetch ~/mae-nginx-tls-incr.bundle \
+  'refs/heads/deploy-nginx-tls:refs/remotes/origin/deploy-nginx-tls'
+```
 
 Само переключение рабочего дерева делать **после** бэкапа и пометки образов
 (шаги 0 и 4), непосредственно перед сборкой:
 
 ```sh
-git switch -C release local/nginx-tls
+git switch -C release origin/deploy-nginx-tls
 ```
 
 Заглавная `-C` вместо `-c`: команда идемпотентна и переставляет ветку, если та
@@ -129,10 +126,10 @@ git switch -C release local/nginx-tls
 Обязательно проверить, что в рабочем дереве оказался новый код, а не старый:
 
 ```sh
-git rev-parse release local/nginx-tls   # два одинаковых хеша
-ls nginx/templates/                     # должен быть default.conf.template
-grep -cE 'nginx|certbot' compose.yml    # > 0
-grep -n 'context: \.'  compose.yml      # пусто
+git rev-parse release origin/deploy-nginx-tls   # два одинаковых хеша
+ls nginx/templates/                             # должен быть default.conf.template
+grep -cE 'nginx|certbot' compose.yml            # > 0
+grep -n 'context: \.'  compose.yml              # пусто
 ```
 
 Если `compose.yml` содержит `build:` у сервиса базы, а каталога `nginx/` нет —
