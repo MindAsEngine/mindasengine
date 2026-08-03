@@ -1,18 +1,89 @@
-version: '3.8'
-
 services:
+
+  nginx:
+    container_name: nginx
+    image: mind-as-engine-nginx
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/conf/nginx.conf:/etc/nginx/nginx.conf:ro
+      - certbot-conf:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    environment:
+      - TZ=${TZ:-Europe/Moscow}
+      # Подставляется в nginx/templates/default.conf.template.
+      - DOMAIN=${DOMAIN:-localhost}
+      # Ограничиваем envsubst только DOMAIN, иначе он съест $host, $request_uri и т.п.
+      - NGINX_ENVSUBST_FILTER=^DOMAIN$$
+    depends_on:
+      mind-as-engine-frontend:
+        condition: service_started
+      mind-as-engine-backend:
+        condition: service_started
+    # command НЕ переопределяем: /docker-entrypoint.sh запускает скрипты из
+    # /docker-entrypoint.d (envsubst шаблона + выбор сертификата + цикл релоада)
+    # только когда первым аргументом идёт "nginx".
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - 'default'
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # Автопродление сертификатов Let's Encrypt: проверка каждые 12 часов,
+  # certbot сам обновляет только те, которым осталось < 30 дней.
+  certbot:
+    container_name: certbot
+    image: certbot/certbot:latest
+    volumes:
+      - certbot-conf:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    environment:
+      - TZ=${TZ:-Europe/Moscow}
+    entrypoint: >
+      /bin/sh -c "trap exit TERM; while :; do
+      certbot renew --webroot -w /var/www/certbot --quiet;
+      sleep 12h & wait $${!}; done"
+    depends_on:
+      - nginx
+    networks:
+      - 'default'
+    restart: unless-stopped
+
   mind-as-engine-frontend:
     container_name: mind-as-engine-frontend
     image: mind-as-engine-frontend
     build:
       context: ./frontend
+      args:
+        # Пустая строка = фронт ходит на тот же origin, что и сайт (через nginx).
+        # Никакого http://...:1337 - иначе браузер заблокирует mixed content на HTTPS.
+        REACT_APP_API_URL: ''
     depends_on:
-      - mind-as-engine-backend
-    ports:
-      - '3000:3000'
+      mind-as-engine-backend:
+        condition: service_started
+    environment:
+      - TZ=${TZ:-Europe/Moscow}
+    expose:
+      - '3000'
     networks:
-      - 'frontend'
-      - 'backend'
+      - 'default'
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   mind-as-engine-backend:
     container_name: mind-as-engine-backend
@@ -20,49 +91,47 @@ services:
     build:
       context: ./backend
     depends_on:
-      - mind-as-engine-database
+      # Ждём, пока postgres реально начнёт принимать соединения,
+      # иначе Spring падает на старте с "Connection refused".
+      mind-as-engine-database:
+        condition: service_healthy
     env_file: environment.env
     volumes:
       - /home/mindasengine/res:/home/mindasengine/images
-    ports:
-      - '1337:1337'
+    expose:
+      - '1337'
     networks:
-      - 'backend'
+      - 'default'
+    restart: unless-stopped
+    healthcheck:
+      # /dev/tcp - фича bash, в dash её нет, поэтому явный bash -c.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/1337"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
 
   mind-as-engine-database:
     container_name: mind-as-engine-database
     image: postgres:14-alpine3.18
-    build:
-      context: .
     env_file: environment.env
     volumes:
       - /home/mindasengine/pgdata:/var/lib/postgresql/data
+    expose:
+      - '5432'
     restart: unless-stopped
-    ports:
-      - '5555:5432'
     networks:
-      - 'backend'
+      - 'default'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
-  twg-proxy:
-    image: valian/docker-nginx-auto-ssl
-    restart: on-failure
-    ports:
-      - '80:80'
-      - '443:443'
-    volumes:
-      - ssl_data:/etc/resty-auto-ssl
-    env_file:
-      - ./environment.env
-  
-    networks:
-      - proxy
-      - frontend
-      - backend
+volumes:
+  certbot-conf:
+  certbot-www:
 
 networks:
-  proxy:
-    name: proxy_network
-  frontend:
-    name: frontend_network
-  backend:
-    name: backend_network
+  default:

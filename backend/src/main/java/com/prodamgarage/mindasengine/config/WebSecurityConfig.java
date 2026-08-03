@@ -24,6 +24,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
@@ -76,7 +77,11 @@ public class WebSecurityConfig {
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of(allowedOrigins)); // Список источников из белого списка
+        // allowed.origins - список через запятую (apex + www и т.п.)
+        configuration.setAllowedOrigins(Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toList()); // Список источников из белого списка
         configuration.setAllowedMethods(List.of("GET","POST", "PUT", "DELETE")); // Список разделенных запятыми методов HTTP, которые веб-сервер допускает для запросов между источниками
         configuration.setAllowCredentials(true); // Если браузер отправляет запрос на сервер, передавая учетные данные (в виде файлов cookie или заголовков авторизации), его значение устанавливается равным true
         configuration.setAllowedHeaders(List.of("Authorization",

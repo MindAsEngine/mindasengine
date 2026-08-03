@@ -1,0 +1,6 @@
+# Скрипты, попадающие в Linux-контейнеры, должны иметь LF,
+# иначе shebang ломается ("bad interpreter: no such file or directory").
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.conf text eol=lf
+*.template text eol=lf

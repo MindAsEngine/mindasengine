@@ -37,3 +37,9 @@ backend/src/main/resources/application.properties
 backend/src/main/resources/images/*
 frontend/node_modules
 *.env
+!.env.example
+!environment.env.example
+
+# Выгрузка состояния с боевого сервера, в репозиторий не входит
+СЕРВЕР/
+mae-server-state/
