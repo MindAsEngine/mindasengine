@@ -4,7 +4,7 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 /pgdata
-/res
+/home/mindasengine
 
 ### STS ###
 .apt_generated
