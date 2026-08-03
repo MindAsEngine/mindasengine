@@ -179,7 +179,7 @@ git status                 # compose.yml станет обычным "modified"
 ```
 
 Рабочий `compose.yml` при этом остаётся на диске как есть — он нужен как точка
-отката (шаг 4). Файл заменится сам при `git switch -c release local/master`.
+отката (шаг 4). Файл заменится сам при `git switch -C release origin/deploy-nginx-tls`.
 
 Правку `frontend/src/axios.js` (`http://72.56.32.151:1337`) переносить не надо,
 её заменяет относительный baseURL. Сохранена в `~/mae-worktree.diff`.
@@ -232,7 +232,7 @@ grep -E "80:3000|twg-proxy" compose.rollback.yml
 
 Сборка не трогает работающие контейнеры — они держат старый image ID.
 
-Выполнять **только после** `git switch -c release local/master` из шага 1.
+Выполнять **только после** `git switch -C release origin/deploy-nginx-tls` из шага 1.
 На старом `compose.yml` команда падает:
 
 ```text
@@ -250,19 +250,49 @@ open Dockerfile: no such file or directory
 docker compose build
 ```
 
-## 6. Обкатка nginx на 8080/8443 (простоя нет)
+## 6. Обкатка nginx на 18080/18443 (простоя нет)
 
 nginx поднимается на временных портах и проксирует на уже работающие
 контейнеры. Порт 80 остаётся за старым фронтом.
 
+Предусловия:
+
+```sh
+docker compose version                     # нужна 2.24.0+, иначе не работает !override
+ss -lnt | grep -E ':(18080|18443)'         # должно быть пусто
+```
+
 ```sh
 docker compose -f compose.yml -f compose.canary.yml up -d --no-deps nginx
-
-curl -k https://127.0.0.1:8443/news       # nginx -> backend -> база
-curl -k https://127.0.0.1:8443/projects
-curl -kI https://127.0.0.1:8443/          # nginx -> старый frontend
-curl -I  http://127.0.0.1:8080/           # 301 на https
+docker ps --filter name=nginx --format '{{.Names}} | {{.Status}} | {{.Ports}}'
 ```
+
+В выводе должно быть ровно `0.0.0.0:18080->80/tcp, 0.0.0.0:18443->443/tcp`.
+Если контейнер не поднялся — смотреть шапку про `!override` ниже.
+
+```sh
+curl -k  https://127.0.0.1:18443/news      # nginx -> backend -> база
+curl -k  https://127.0.0.1:18443/projects
+curl -kI https://127.0.0.1:18443/          # nginx -> старый frontend
+curl -I  http://127.0.0.1/                 # старый сайт на :80 живой, HTTP 200
+```
+
+> **`ports` в оверлее нужен тег `!override`.** Compose склеивает списки, а не
+> заменяет их: без тега у nginx окажется 80 + 443 + 18080 + 18443, порт 80
+> занят старым фронтом, контейнер падает при старте, и канареечный порт
+> молчит — `curl: (7) Failed to connect`. В `compose.canary.yml` тег уже стоит;
+> проверить результат слияния можно так:
+>
+> ```sh
+> docker compose -f compose.yml -f compose.canary.yml config | grep -A 12 'ports:'
+> ```
+>
+> Должны быть только 18080 и 18443.
+
+Мелочь, чтобы не сбивала: `curl -I http://127.0.0.1:18080/` отдаёт
+`301 -> https://127.0.0.1/` без порта. Так и задумано — `$host` не содержит
+порт, и на боевых 80/443 редирект правильный. Канарейку проверять сразу по
+HTTPS на 18443.
 
 Старый фронт отдаёт старый бандл с абсолютным `http://mindasengine.uz:1337` —
 на этом этапе так и должно быть, он заменится на шаге 7.
