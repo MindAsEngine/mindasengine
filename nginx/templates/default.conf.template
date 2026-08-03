@@ -76,9 +76,12 @@ server {
         include /etc/nginx/proxy_backend.conf;
         proxy_pass http://$backend_upstream;
         # Загрузка файлов: не буферизуем тело и даём больше времени.
+        # При 100MB на файл по медленному каналу передача идёт долго,
+        # client_body_timeout считается между чтениями, но запас нужен.
         proxy_request_buffering off;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        client_body_timeout 600s;
     }
 
     location ^~ /images/ {
