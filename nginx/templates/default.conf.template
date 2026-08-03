@@ -1,0 +1,121 @@
+# Шаблон обрабатывается штатным entrypoint'ом nginx (envsubst).
+# Подставляется только ${DOMAIN} - см. NGINX_ENVSUBST_FILTER в compose.yml,
+# остальные $переменные остаются переменными nginx.
+#
+# Адреса upstream'ов заданы через set-переменные намеренно: с обычным
+# upstream/proxy_pass по имени nginx резолвит имя один раз при старте и
+# падает с "host not found in upstream", если контейнер бэка ещё не поднялся.
+# С переменной имя резолвится на каждый запрос через docker DNS (resolver в
+# nginx.conf), и лежащий бэкенд даёт 502 вместо падения всего nginx.
+
+# ------------------------------ HTTP :80 ------------------------------
+# Только ACME-challenge и редирект на HTTPS.
+server {
+    listen      80 default_server;
+    listen      [::]:80 default_server;
+    server_name ${DOMAIN} www.${DOMAIN} _;
+
+    # Проверка живости для healthcheck контейнера.
+    location = /healthz {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Webroot для выпуска/продления сертификатов Let's Encrypt.
+    # Должен остаться на HTTP: ACME http-01 ходит именно на порт 80.
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ------------------------------ HTTPS :443 ------------------------------
+server {
+    listen      443 ssl default_server;
+    listen      [::]:443 ssl default_server;
+    http2       on;
+    server_name ${DOMAIN} www.${DOMAIN} _;
+
+    # Генерируется скриптом /docker-entrypoint.d/05-tls-bootstrap.sh на старте:
+    # боевой сертификат Let's Encrypt либо самоподписанная заглушка.
+    include /etc/nginx/tls-cert.conf;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options    "nosniff" always;
+    add_header X-Frame-Options           "SAMEORIGIN" always;
+    add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+
+    set $frontend_upstream "mind-as-engine-frontend:3000";
+    set $backend_upstream  "mind-as-engine-backend:1337";
+
+    location = /healthz {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    # --------------------------- BACKEND ---------------------------
+    # Пути соответствуют @RequestMapping в backend:
+    #   /api/auth/**  AuthController
+    #   /moderator/** ModeratorController
+    #   /images/**    ImageController
+    #   /news         UserController
+    #   /projects     UserController
+    # Пересечений с маршрутами react-router (/, /auth, /adminmain/*) нет.
+    location ^~ /api/ {
+        include /etc/nginx/proxy_backend.conf;
+        proxy_pass http://$backend_upstream;
+    }
+
+    location ^~ /moderator/ {
+        include /etc/nginx/proxy_backend.conf;
+        proxy_pass http://$backend_upstream;
+        # Загрузка файлов: не буферизуем тело и даём больше времени.
+        proxy_request_buffering off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    location ^~ /images/ {
+        include /etc/nginx/proxy_backend.conf;
+        proxy_pass http://$backend_upstream;
+        expires 1h;
+        add_header Cache-Control "public";
+    }
+
+    location = /news {
+        include /etc/nginx/proxy_backend.conf;
+        proxy_pass http://$backend_upstream;
+    }
+
+    location = /projects {
+        include /etc/nginx/proxy_backend.conf;
+        proxy_pass http://$backend_upstream;
+    }
+
+    # --------------------------- FRONTEND ---------------------------
+    # Собранные CRA-ассеты с хэшем в имени - кэшируем надолго.
+    location ^~ /static/ {
+        include /etc/nginx/proxy_backend.conf;
+        proxy_pass http://$frontend_upstream;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Всё остальное - React SPA (serve -s build отдаёт index.html на любой путь).
+    location / {
+        include /etc/nginx/proxy_backend.conf;
+        proxy_pass http://$frontend_upstream;
+    }
+
+    error_page 502 503 504 /50x.html;
+    location = /50x.html {
+        root /usr/share/nginx/html;
+        internal;
+    }
+}
