@@ -129,8 +129,13 @@ git switch -C release origin/deploy-nginx-tls
 git rev-parse release origin/deploy-nginx-tls   # два одинаковых хеша
 ls nginx/templates/                             # должен быть default.conf.template
 grep -cE 'nginx|certbot' compose.yml            # > 0
-grep -n 'context: \.'  compose.yml              # пусто
+grep -n 'context: \.$' compose.yml              # пусто
 ```
+
+Точка в шаблоне обязана быть привязана к концу строки (`\.$`). Без якоря
+`context: \.` совпадает и с нормальными `context: ./nginx`, `./frontend`,
+`./backend` — это контексты сборки nginx, фронта и бэка, они должны быть.
+Искать надо ровно `context: .` у сервиса базы.
 
 Если `compose.yml` содержит `build:` у сервиса базы, а каталога `nginx/` нет —
 приехал старый коммит, шаг 5 упадёт на сборке базы.
