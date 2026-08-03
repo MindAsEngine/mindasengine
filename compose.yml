@@ -47,6 +47,10 @@ services:
     volumes:
       - certbot-conf:/etc/letsencrypt
       - certbot-www:/var/www/certbot
+      # Образ certbot объявляет VOLUME и на /var/lib/letsencrypt (рабочий каталог
+      # с бэкапами конфигов). Без явного тома docker создаёт анонимный, и каждое
+      # пересоздание контейнера оставляет новый осиротевший том.
+      - certbot-lib:/var/lib/letsencrypt
     environment:
       - TZ=${TZ:-Europe/Moscow}
     entrypoint: >
@@ -132,6 +136,7 @@ services:
 volumes:
   certbot-conf:
   certbot-www:
+  certbot-lib:
 
 networks:
   default:
