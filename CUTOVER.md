@@ -84,25 +84,41 @@ Push с сервера недоступен, а репозитории вооб�
 поэтому обмен идёт файлами-бандлами в обе стороны. Состояние сервера уже снято
 в `СЕРВЕР/mae-deploy.bundle`. Обратная доставка — тем же способом.
 
-Локально:
+Локально (ветка с правками — `nginx-tls`, не `master`; на `master` лежит
+январский код без единой правки):
 
 ```sh
-git bundle create ~/mae-new.bundle master
+git bundle create ~/mae-nginx-tls.bundle nginx-tls
+git bundle list-heads ~/mae-nginx-tls.bundle    # ждём refs/heads/nginx-tls
 ```
 
-Скопировать `mae-new.bundle` на сервер, затем на сервере:
+Скопировать `mae-nginx-tls.bundle` на сервер, затем на сервере:
 
 ```sh
-git fetch ~/mae-new.bundle 'refs/heads/master:refs/remotes/local/master'
-git log --oneline -5 local/master
-git diff HEAD local/master --stat        # посмотреть, что приедет
+git fetch ~/mae-nginx-tls.bundle 'refs/heads/nginx-tls:refs/remotes/local/nginx-tls'
+git log --oneline -6 local/nginx-tls
 ```
+
+Ожидаемые заголовки, снизу вверх:
+
+```text
+mindasengine rebirth
+Restore changes that existed only on the live deploy branch
+Fix frontend-backend-database wiring
+Add nginx reverse proxy with TLS and automatic certificate renewal
+Add deployment and cutover documentation
+```
+
+Верхний хеш должен совпадать с тем, что печатает
+`git bundle list-heads ~/mae-nginx-tls.bundle`. Если в логе один только
+`mindasengine rebirth` — приехал бандл, собранный с `master`, дальше идти
+нельзя: шаг 5 упадёт на сборке базы.
 
 Само переключение рабочего дерева делать **после** бэкапа и пометки образов
 (шаги 0 и 4), непосредственно перед сборкой:
 
 ```sh
-git switch -C release local/master
+git switch -C release local/nginx-tls
 ```
 
 Заглавная `-C` вместо `-c`: команда идемпотентна и переставляет ветку, если та
@@ -110,13 +126,17 @@ git switch -C release local/master
 `fatal: a branch named 'release' already exists` и при этом **не переключается** —
 легко решить, что переключение прошло, если до этого уже стоял на `release`.
 
-Проверить, что ветка указывает на свежий bundle:
+Обязательно проверить, что в рабочем дереве оказался новый код, а не старый:
 
 ```sh
-git rev-parse release local/master     # два одинаковых хеша
-grep -cE 'nginx|certbot' compose.yml   # > 0
-grep -n 'context: \.'  compose.yml     # пусто
+git rev-parse release local/nginx-tls   # два одинаковых хеша
+ls nginx/templates/                     # должен быть default.conf.template
+grep -cE 'nginx|certbot' compose.yml    # > 0
+grep -n 'context: \.'  compose.yml      # пусто
 ```
+
+Если `compose.yml` содержит `build:` у сервиса базы, а каталога `nginx/` нет —
+приехал старый коммит, шаг 5 упадёт на сборке базы.
 
 Ветка `deploy` @ `b5ce3c8` при этом остаётся на месте и служит точкой отката.
 
